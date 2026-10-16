@@ -1,0 +1,45 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "Order API", "version": "1.0.0" },
+  "paths": {
+    "/legacy-orders": {
+      "get": { "deprecated": true, "responses": { "204": { "description": "No orders" } } }
+    },
+    "/orders/{orderId}": {
+      "parameters": [{ "name": "orderId", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": {
+        "responses": {
+          "200": {
+            "description": "Order details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["orderId", "total", "customer", "items"],
+                  "properties": {
+                    "orderId": { "type": "string" },
+                    "total": { "type": "number" },
+                    "customer": {
+                      "type": "object",
+                      "required": ["name", "email"],
+                      "properties": { "name": { "type": "string" }, "email": { "type": "string" } }
+                    },
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": ["sku", "quantity"],
+                        "properties": { "sku": { "type": "string" }, "quantity": { "type": "integer" } }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": { "responses": { "204": { "description": "Order cancelled" } } }
+    }
+  }
+}

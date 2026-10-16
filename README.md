@@ -1,28 +1,128 @@
 # api-contract-diff
 
-A TypeScript CLI for comparing two local OpenAPI 3.0 or 3.1 JSON specifications.
-Milestone 1 detects removed paths, removed HTTP operations, removed response
-properties, and changes to response property types. It makes no network requests.
+[![CI](https://github.com/jigar48/api-contract-diff/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jigar48/api-contract-diff/actions/workflows/ci.yml)
+[MIT licensed](LICENSE) · TypeScript · Node.js 22+
 
-**This is not a comprehensive compatibility gate.** Exit 0 means that none of
-the supported changes were found, not that the API is backward compatible.
-The first public candidate is `0.1.0-rc.1`; there is no published npm release
-assumed by these instructions.
+**Spot API contract changes before they surprise an integration.**
 
-## Installation and usage
+`api-contract-diff` compares two local OpenAPI JSON specifications and reports
+removed endpoints, removed response fields, and changed response property types.
+Use it when reviewing an API update or checking a supplier's specification before
+updating your integration. It prints a readable terminal report and returns an
+exit code you can use in CI.
 
-Requires Node.js 22 or newer and npm.
+This is an early `0.1.0-rc.1` candidate, **not a comprehensive compatibility gate**.
+Exit 0 means no supported changes were detected; it does not prove compatibility.
+There is no published npm package assumed by these instructions.
 
-From a source checkout:
+## Try it in under two minutes
+
+With Git, Node.js 22 or newer, and npm installed:
 
 ```sh
+git clone https://github.com/jigar48/api-contract-diff.git
+cd api-contract-diff
 npm ci
 npm run build
+node dist/cli.js compare examples/orders-before.json examples/orders-after.json
+```
+
+Setup time depends on your connection and machine. The demo intentionally exits
+**1** because it detects five changes:
+
+```text
+5 breaking change(s) detected:
+- Removed path: /legacy-orders
+- Removed response property: GET /orders/{orderId} → 200 (application/json) /customer/email
+- Changed response property type: GET /orders/{orderId} → 200 (application/json) /items/*/quantity: integer → string
+- Changed response property type: GET /orders/{orderId} → 200 (application/json) /total: number → string
+- Removed operation: DELETE /orders/{orderId}
+```
+
+To compare your own specifications:
+
+```sh
+node dist/cli.js compare old.json new.json
+```
+
+## A realistic before/after example
+
+An ecommerce integration reads order totals, customer details, and line items.
+The updated API removes `customer.email`, returns `total` and item `quantity` as
+strings, and removes two older endpoint definitions.
+
+Illustrative `GET /orders/{orderId}` response **before**:
+
+```json
+{
+  "orderId": "ORD-1042",
+  "total": 59.98,
+  "customer": { "name": "Alex", "email": "alex@example.com" },
+  "items": [{ "sku": "TSHIRT-BLUE-M", "quantity": 2 }]
+}
+```
+
+**After**:
+
+```json
+{
+  "orderId": "ORD-1042",
+  "total": "59.98",
+  "customer": { "name": "Alex" },
+  "items": [{ "sku": "TSHIRT-BLUE-M", "quantity": "2" }]
+}
+```
+
+The CLI compares the **OpenAPI specifications**, not these example payloads.
+The complete runnable files are [orders-before.json](examples/orders-before.json)
+and [orders-after.json](examples/orders-after.json). This is a synthetic example;
+it contains no customer data. `/*` in the report means an array item.
+
+## What it detects
+
+| Category | Example |
+| --- | --- |
+| Removed API paths | `/legacy-orders` disappears |
+| Removed HTTP operations | `DELETE /orders/{orderId}` disappears |
+| Removed response properties | `customer.email` disappears |
+| Changed response property types | `total` changes from `number` to `string` |
+
+Detection covers nested objects, array items, and named properties inside map
+values. It combines structural declarations through `allOf` and resolves local
+references, including recursive schemas. Responses are compared separately for
+each existing status code and media type.
+
+Both optional and required property removals are reported. Every declared type
+change is treated conservatively as breaking. Removed parent paths, operations,
+or properties suppress redundant descendant-removal reports.
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | No supported breaking changes detected |
+| `1` | One or more supported breaking changes detected |
+| `2` | Invalid arguments, invalid specification, file error, or rejected reference |
+
+Reports go to stdout; errors go to stderr. Both documents are validated before
+comparison. Identical specifications print `No breaking changes detected.`
+
+```sh
+node dist/cli.js compare examples/orders-before.json examples/orders-before.json
+```
+
+That command exits 0. A nonexistent input file exits 2.
+
+## Install the CLI command locally
+
+From the source checkout, after installing dependencies and building:
+
+```sh
 npm link
 api-contract-diff compare old.json new.json
 ```
 
-To produce and install the candidate tarball locally:
+You can also create and install a local tarball; this does not publish anything:
 
 ```sh
 npm pack
@@ -30,152 +130,101 @@ npm install --global ./api-contract-diff-0.1.0-rc.1.tgz
 api-contract-diff compare old.json new.json
 ```
 
-`npm pack` builds the CLI first. Installing from a tarball needs no TypeScript
-compiler or source checkout. Installation may download npm dependencies; the
-comparison command itself uses local files and does not fetch network resources.
+`npm pack` builds first. The installed CLI needs no TypeScript compiler. Demo files
+belong to the source checkout and are not included in the tarball. Installing
+dependencies requires registry access; comparison never fetches HTTP resources.
 
-You can also run the compiled CLI directly without linking:
+## Known limitations
 
-```sh
-node dist/cli.js compare test/fixtures/old.json test/fixtures/new.json
-node dist/cli.js compare test/fixtures/old.json test/fixtures/old.json
-```
+- **Structural checks only.** No `oneOf`/`anyOf`, tuple `prefixItems`, discriminator,
+  constraint, enum, format, requiredness-only, or general schema-satisfiability
+  analysis. `allOf` supports the structural keywords described above, not every
+  possible JSON Schema intersection.
+- **Responses only.** Requests, parameters, headers, callbacks, and webhooks are
+  not compared. Root response type changes and map removal have no separate
+  finding category.
+- **Literal status matching.** Equivalence between an explicit code, a range such
+  as `2XX`, and `default` is not calculated. Removing a bodyless response or a
+  response without named properties can produce no finding.
+- **Conservative findings.** Optional field removal and compatible type changes
+  can be reported. Inferring object/array types from `properties`/`items` is a
+  reporting heuristic, not a complete interpretation of JSON Schema semantics.
+- **JSON only.** Supports the pinned validator's OpenAPI versions 3.0.0–3.0.4 and
+  3.1.0–3.1.2. YAML, `$id` resource scopes, anchors, dynamic references, and custom
+  dialects are unsupported. Literal schema-like keys in examples or extensions
+  can be interpreted as schema syntax and rejected.
+- **Trusted local inputs.** No file-size, file-count, depth, or work limits.
+  Filesystem races and mounted network filesystems are outside the tool's
+  protection. This is not a filesystem sandbox.
 
-These fixture commands are for the source checkout. The first exits 1 and the
-second exits 0. A missing file, invalid JSON, or rejected reference exits 2.
+Use the report alongside API review and integration tests, not as your only
+release check.
 
-Example output (exit code 1):
+<details>
+<summary>Validation, references, and type handling</summary>
 
-```text
-5 breaking change(s) detected:
-- Changed response property type: GET /pets → 200 (application/json) /age: integer → string
-- Removed response property: GET /pets → 200 (application/json) /name
-- Removed response property: GET /pets → 200 (application/json) /tags/*/label
-- Removed operation: DELETE /pets
-- Removed path: /retired
-```
+OpenAPI structure is validated with Swagger Parser. OpenAPI 3.1 schemas also
+undergo JSON Schema 2020-12 meta-schema validation with Ajv. All validation schemas
+are bundled dependencies; external resolvers are disabled.
 
-Identical or additive contracts print `No breaking changes detected.`
+References may use internal JSON Pointers or relative JSON files, for example
+`./schemas/order.json#/Order`. Each reference resolves relative to its containing
+file. All referenced files must stay inside the entry specification's directory,
+including after canonical path and symlink resolution. All `$ref` values are
+checked, including unused components.
 
-| Exit | Meaning |
-| --- | --- |
-| 0 | No detected breaking changes |
-| 1 | At least one detected breaking change |
-| 2 | Invalid command, unreadable file, malformed JSON, invalid OpenAPI, or reference error |
+Remote references, absolute reference paths, UNC/device paths, query strings,
+backslashes, and non-pointer fragments are rejected. Entry filenames also reject
+URI schemes and UNC/device paths. Filesystem access remains subject to the OS.
+The `x-contract-documents` extension is reserved for internal bundling.
 
-Reports go to stdout; usage and errors go to stderr. Both inputs are loaded and
-validated before any comparison report is printed. Paths and properties are
-sorted for deterministic output. Untrusted terminal control characters are escaped.
+Schema `$ref` siblings are ignored in 3.0 and applied conjunctively in 3.1. Type
+arrays are order independent. `nullable` affects types only in 3.0; use explicit
+JSON Schema `null` types in 3.1. Property locations use JSON Pointer escaping;
+`*` denotes array items and `{key}` denotes map values. Output is deterministic,
+and terminal control characters from specification text are escaped.
 
-## Supported detection categories
+</details>
 
-1. Removed API paths.
-2. Removed HTTP operations.
-3. Removed response properties.
-4. Changed response property types.
-
-## Comparison rules
-
-- Compares GET, PUT, POST, DELETE, OPTIONS, HEAD, PATCH, and TRACE.
-- Compares each existing response status and media type independently.
-- Traverses named properties, nested objects, array items, and schema-valued maps.
-- Collects properties declared through `allOf`.
-- Intersects types and combines nested declarations across `allOf`, including
-  array items and map values. Schema `$ref` siblings are ignored in 3.0 and
-  applied conjunctively in 3.1.
-- Reports removed parent properties once, without listing their descendants.
-- A removed path suppresses individual operation/property reports for that path;
-  a removed operation likewise suppresses its property reports.
-- Treats every change in declared type as breaking, including widening. Type arrays
-  are order independent, and OpenAPI 3.0 `nullable` contributes the `null` type.
-- Reports removal of both optional and required properties. Changes to the
-  `required` list alone are not detected; this is a conservative declaration diff.
-- Infers object/array types from `properties`/`items` when `type` is omitted.
-- Missing responses or media types report their removed named properties, but
-  response/media-type removal itself is outside the four change categories.
-- Property locations use JSON Pointer escaping; `*` denotes array items and
-  `{key}` denotes map values.
-
-## Validation and local references
-
-OpenAPI structure is validated using Swagger Parser; OpenAPI 3.1 schema objects
-also undergo JSON Schema 2020-12 meta-schema validation with Ajv.
-Dependencies ship their validation schemas locally; validation never downloads them.
-Supported version strings are those accepted by the pinned parser: 3.0.0–3.0.4
-and 3.1.0–3.1.2.
-
-References may be internal JSON Pointers or relative JSON files such as
-`./schemas/pet.json#/Pet`. Each file's relative references resolve against that
-file's directory. Recursive references are supported. URI-encoded pointer names
-and JSON Pointer escapes (`~0`, `~1`) are supported.
-
-Every referenced file must resolve inside the entry specification's directory,
-including after following symlinks. Parent traversal outside that directory,
-absolute paths, UNC paths, URL schemes (including HTTP and `file:`), query
-strings, backslashes, and non-pointer fragments are rejected. All `$ref` values
-are checked, including unused components. External resolvers are disabled before
-the bundled in-memory document reaches the validator.
-Entry filenames also reject URI schemes and UNC/device paths before filesystem
-access. Filesystem operations on mounted network volumes or symlinks to remote
-targets remain subject to the operating system; this is not a filesystem sandbox.
-
-## Architecture and tests
-
-- `src/loader.ts`: JSON loading, safe reference graph bundling, and validation.
-- `src/compare.ts`: pure contract comparison returning structured changes.
-- `src/report.ts`: readable terminal formatting.
-- `src/cli.ts`: argument handling, orchestration, and exit codes.
-- `test/fixtures/`: sample 3.0 documents and a recursive external 3.1 schema.
-- `test/unit.test.mjs` and `test/integration.test.mjs`: comparison and CLI tests.
-- `test/audit.test.mjs`: compatibility and security regression cases.
+## Development and verification
 
 ```sh
+npm ci
+npm run build
 npm test
 npm run check:release
 npm run check:package
 ```
 
-This compiles TypeScript and runs Node's built-in test runner. Tests use local
-fixtures and temporary files only. The symlink test skips when Windows does not
-grant symlink creation privileges.
+[The initial GitHub-hosted CI run](https://github.com/jigar48/api-contract-diff/actions/runs/38910933245)
+passed on Node.js 22 and 24 across Ubuntu, Windows, and macOS: **40 tests and five
+installed-package smoke checks per job**, with no failures or skipped tests.
+The badge above shows the current `main` workflow status.
 
-The release check validates metadata, the license, ignore rules, and scans Git
-candidate files for common credentials and local paths. It is a heuristic check
-that supplements manual review. The package check creates a tarball, enforces an
-exact file allowlist, installs it in a temporary clean consumer, and runs the
-installed CLI's bin shim with network APIs blocked. It checks compatible, breaking,
-invalid-JSON, remote-reference, and usage cases. Dependency installation requires
-registry access; CLI smoke tests run offline. Temporary package files are removed.
+Package checks install a tarball into a clean temporary consumer, enforce an exact
+file allowlist, and exercise the installed bin with network APIs blocked. Release
+checks validate metadata and scan for common credentials/local paths; scanning is
+heuristic, not a security guarantee. Tests require no API credentials. The symlink
+test may skip on systems without the necessary creation privilege.
 
-GitHub Actions defines all six combinations of Node.js 22/24 and
-`ubuntu-latest`/`windows-latest`/`macos-latest`. Every job runs `npm ci`, build,
-tests, release checks, and package checks with read-only repository permissions.
-The workflow never publishes or deploys. Defining the matrix does not establish
-that remote CI has passed; check its actual results before announcing a candidate.
+The source is separated into [loading/validation](src/loader.ts),
+[comparison](src/compare.ts), [reporting](src/report.ts), and
+[CLI orchestration](src/cli.ts). [Tests](test/) cover unit, integration, and audit
+regressions.
 
-## Known limitations
+## About the maintainer · Work with me
 
-This is a structural comparison, not a complete compatibility proof. It does not
-analyze `oneOf`/`anyOf` alternatives, discriminators, constraints, formats, enums,
-requiredness, request bodies, parameters, headers, callbacks, or webhooks. `allOf`
-comparison handles the listed structural keywords, not arbitrary JSON Schema
-intersections or satisfiability. Root response schema type changes are outside the
-property-type category. Map removal is not itself reported.
-Status codes are matched literally; equivalence between explicit codes, wildcard
-ranges, and `default` is not calculated. Removing a bodyless response or operation
-response with no named properties may produce no finding. In OpenAPI 3.1, a
-`properties` or `items` keyword alone does not constrain the instance type; inferred
-types here are a reporting heuristic. `nullable` affects comparison only for
-OpenAPI 3.0 inputs; 3.1 null types must use JSON Schema type declarations.
+Created and maintained by **Jigar Prajapati**, a software engineer specializing in
+API integrations, ecommerce systems, cloud infrastructure, and automation.
 
-JSON only; YAML is unsupported. JSON Schema resource scopes (`$id`), anchors,
-dynamic references, and custom dialects are rejected. The extension
-`x-contract-documents` is reserved for bundling. Reference/keyword checks are
-conservative and also inspect example and extension objects: literal `$ref`,
-`$id`, or `schema` data keys there can be treated as schema syntax. Inputs should
-be trusted local files that remain unchanged while the command runs; filesystem
-checks do not provide isolation against concurrent filesystem changes. No explicit
-file-size/depth limits are imposed.
+Available for custom software development, API integrations, ecommerce solutions,
+and AI automation consulting.
 
-Licensed under the [MIT license](LICENSE).
-For responsible disclosure, see [SECURITY.md](SECURITY.md).
+[Connect on LinkedIn](https://www.linkedin.com/in/buildaiwith-jigar-prajapati/) ·
+[Email Jigar](mailto:jigar.prajapati48@gmail.com) ·
+[GitHub profile](https://github.com/jigar48)
+
+## License and security
+
+[MIT license](LICENSE). For responsible disclosure, read [SECURITY.md](SECURITY.md).
+Do not post vulnerability details or credentials in public issues.

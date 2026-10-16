@@ -1,5 +1,10 @@
 # Private CI preflight: v0.1.0-rc.1
 
+> Historical record, superseded by the owner's approval to keep the repository
+> public. The initial commit was pushed and [all six public CI jobs passed](https://github.com/jigar48/api-contract-diff/actions/runs/38910933245).
+> The gates and "not run" statements below describe the earlier private-CI plan;
+> they are not current instructions or blockers. See [README.md](README.md).
+
 Checked 2026-10-16, before approval for remote changes or pushing.
 
 ## Verified GitHub state

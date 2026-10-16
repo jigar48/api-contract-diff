@@ -1,7 +1,24 @@
 # Release candidate: 0.1.0-rc.1
 
-Updated for the user-created GitHub repository. The current approval gates and
-verified remote state are in [PRIVATE-CI-PREFLIGHT.md](PRIVATE-CI-PREFLIGHT.md).
+## Current status
+
+The owner approved keeping this portfolio project public. Commit
+[`59a69cc`](https://github.com/jigar48/api-contract-diff/commit/59a69cc3d44bc8a4185fd46591fd5beb32f81a42)
+was pushed to `main`, and [all six GitHub-hosted CI jobs passed](https://github.com/jigar48/api-contract-diff/actions/runs/38910933245):
+Node 22/24 on Ubuntu, Windows, and macOS. Each job passed 40 tests with no failures
+or skips, plus five installed-package smoke checks.
+
+This verifies the candidate source and package checks; no GitHub release, npm
+publication, or deployment has been performed. README and example improvements
+are presentation changes, not new comparison features. The current workflow badge
+and setup instructions are in [README.md](README.md).
+
+The remaining sections preserve the earlier local preparation record. Their
+private-repository approval gates, pending-CI statements, and archive checksum
+apply to that historical snapshot, not to the current public repository. Rebuild
+a local tarball with `npm pack` if you need an archive of the current checkout.
+
+## Historical preparation record
 
 Prepared locally on 2026-10-16. Comparison behavior was not changed during release
 preparation. This candidate detects four structural change categories and is **not
