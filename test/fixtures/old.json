@@ -1,0 +1,17 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Example", "version": "1.0.0" },
+  "paths": {
+    "/retired": { "get": { "responses": { "204": { "description": "OK" } } } },
+    "/pets": {
+      "delete": { "responses": { "204": { "description": "Deleted" } } },
+      "get": { "responses": { "200": { "description": "Pets", "content": {
+        "application/json": { "schema": { "type": "object", "properties": {
+          "name": { "type": "string" },
+          "age": { "type": "integer" },
+          "tags": { "type": "array", "items": { "type": "object", "properties": { "label": { "type": "string" } } } }
+        } } }
+      } } } }
+    }
+  }
+}

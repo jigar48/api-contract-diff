@@ -1,0 +1,42 @@
+{
+  "name": "api-contract-diff",
+  "version": "0.1.0-rc.1",
+  "description": "Compare local OpenAPI response contracts for breaking changes",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jigar48/api-contract-diff.git"
+  },
+  "homepage": "https://github.com/jigar48/api-contract-diff#readme",
+  "bugs": { "url": "https://github.com/jigar48/api-contract-diff/issues" },
+  "keywords": ["openapi", "api", "contract", "diff", "cli", "breaking-changes"],
+  "type": "module",
+  "bin": {
+    "api-contract-diff": "dist/cli.js"
+  },
+  "files": [
+    "dist/*.js",
+    "dist/*.d.ts",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --run build && node --test test/*.test.mjs",
+    "prepack": "node --run build",
+    "check:package": "node scripts/check-package.mjs",
+    "check:release": "node scripts/check-release.mjs"
+  },
+  "dependencies": {
+    "@apidevtools/swagger-parser": "12.1.0",
+    "ajv": "8.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.9.3"
+  }
+}

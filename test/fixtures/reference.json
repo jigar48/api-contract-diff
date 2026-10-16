@@ -1,0 +1,7 @@
+{
+  "openapi": "3.1.0",
+  "info": { "title": "References", "version": "1" },
+  "paths": { "/nodes": { "get": { "responses": { "200": {
+    "description": "Node", "content": { "application/json": { "schema": { "$ref": "./schemas/node.json" } } }
+  } } } } }
+}
