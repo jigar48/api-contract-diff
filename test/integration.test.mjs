@@ -26,6 +26,71 @@ test('CLI returns 2 for usage and missing files', () => {
   assert.equal(run().status, 2);
   assert.equal(run('compare', 'missing.json', 'missing.json').status, 2);
 });
+
+test('JSON stdout preserves all four categories, details, and deterministic ordering', async () => {
+  const args = ['compare', 'test/fixtures/old.json', 'test/fixtures/new.json', '--format', 'json'];
+  const result = run(...args);
+  assert.equal(result.status, 1);
+  assert.equal(result.stderr, '');
+  const report = JSON.parse(result.stdout);
+  assert.deepEqual(report, { schemaVersion: 1, count: 5, findings: [
+    { kind: 'property-type-changed', path: '/pets', method: 'get', response: '200', mediaType: 'application/json', property: '/age', before: 'integer', after: 'string' },
+    { kind: 'property-removed', path: '/pets', method: 'get', response: '200', mediaType: 'application/json', property: '/name' },
+    { kind: 'property-removed', path: '/pets', method: 'get', response: '200', mediaType: 'application/json', property: '/tags/*/label' },
+    { kind: 'operation-removed', path: '/pets', method: 'delete' },
+    { kind: 'path-removed', path: '/retired' },
+  ] });
+  assert.equal(run(...args).stdout, result.stdout);
+  const absolute = run('compare', path.resolve(args[1]), path.resolve(args[2]), '--format', 'json');
+  assert.equal(absolute.stdout, result.stdout);
+});
+
+test('JSON zero findings is a versioned empty report', () => {
+  const result = run('compare', 'test/fixtures/reference.json', 'test/fixtures/reference.json', '--format', 'json');
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stderr, '');
+  assert.deepEqual(JSON.parse(result.stdout), { schemaVersion: 1, count: 0, findings: [] });
+});
+
+test('invalid CLI options fail clearly on stderr before loading files', () => {
+  for (const args of [
+    [], ['compare'], ['diff', 'old.json', 'new.json'],
+    ['compare', 'old.json', 'new.json', '--format'],
+    ['compare', 'old.json', 'new.json', '--format', 'xml'],
+    ['compare', 'old.json', 'new.json', '--unknown', 'json'],
+    ['compare', 'old.json', 'new.json', '--format=json'],
+    ['compare', 'old.json', 'new.json', '--format', 'json', '--format', 'json'],
+    ['compare', '--unknown', 'new.json'],
+    ['compare', 'old.json', 'new.json', 'extra'],
+  ]) {
+    const result = run(...args);
+    assert.equal(result.status, 2);
+    assert.equal(result.stdout, '');
+    assert.match(result.stderr, /Usage:.*\[--format json\]/);
+  }
+});
+
+test('JSON errors retain exit 2 and empty stdout', async t => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'contract-json-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const file = path.join(directory, 'api.json');
+  const remote = base(); remote.components.schemas.Bad = { $ref: 'https://example.invalid/schema' };
+  const escape = base(); escape.components.schemas.Bad = { $ref: '../outside.json' };
+  for (const content of ['{', JSON.stringify({ openapi: '3.0.3', paths: {} }), JSON.stringify(remote), JSON.stringify(escape)]) {
+    await writeFile(file, content);
+    const result = run('compare', file, file, '--format', 'json');
+    assert.equal(result.status, 2);
+    assert.equal(result.stdout, '');
+    assert.match(result.stderr, /Error:/);
+    assert.doesNotMatch(result.stderr, /Network access attempted/);
+  }
+  for (const input of ['missing.json', 'https://example.invalid/api.json', '//server/share/api.json']) {
+    const result = run('compare', input, file, '--format', 'json');
+    assert.equal(result.status, 2);
+    assert.equal(result.stdout, '');
+    assert.match(result.stderr, /Error:/);
+  }
+});
 test('validation and reference safety failures produce errors', async t => {
   const directory = await mkdtemp(path.join(tmpdir(), 'contract-diff-'));
   t.after(() => rm(directory, { recursive: true, force: true }));

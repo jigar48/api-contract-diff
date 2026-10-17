@@ -113,6 +113,70 @@ node dist/cli.js compare examples/orders-before.json examples/orders-before.json
 
 That command exits 0. A nonexistent input file exits 2.
 
+## Machine-readable JSON output
+
+Human-readable output remains the default. To emit one JSON object on stdout:
+
+```sh
+api-contract-diff compare old.json new.json --format json
+```
+
+For example, removing a path produces:
+
+```json
+{"schemaVersion":1,"count":1,"findings":[{"kind":"path-removed","path":"/legacy-orders"}]}
+```
+
+With no supported findings, stdout is:
+
+```json
+{"schemaVersion":1,"count":0,"findings":[]}
+```
+
+### Output schema version 1
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `schemaVersion` | integer, always `1` | Output contract version; incompatible schema changes require a new version |
+| `count` | nonnegative integer | Exactly the length of `findings` |
+| `findings` | array of objects | Existing comparison findings, in deterministic comparison order |
+
+Each finding has only the fields listed for its category. All finding fields
+are strings; absent fields are omitted rather than emitted as `null`.
+
+| `kind` | Fields in addition to `kind` |
+| --- | --- |
+| `path-removed` | `path` |
+| `operation-removed` | `path`, `method` |
+| `property-removed` | `path`, `method`, `response`, `mediaType`, `property` |
+| `property-type-changed` | `path`, `method`, `response`, `mediaType`, `property`, `before`, `after` |
+
+`path` is an API path, never the input filename. `method` is lowercase;
+`response` is the status key (including ranges or `default`); `mediaType` is the
+content key. `property` uses the same escaped locations as the terminal report,
+including `/*` and `/{key}`. `before` and `after` are normalized type descriptions
+(for example, `integer`, `null | string`, `unspecified`, or `never`).
+
+Paths, response keys, media types, and property names are traversed in sorted
+order; methods use `get`, `put`, `post`, `delete`, `options`, `head`, `patch`,
+`trace` order. Parent findings suppress redundant descendants as in the default
+report. JSON strings use standard JSON escaping and retain the original finding
+values. No input filenames, timestamps, credentials, or specification contents
+are added beyond existing finding details. Treat finding strings as untrusted
+input when displaying them in other tools.
+
+Exit codes remain `0` for no supported findings, `1` for supported findings, and
+`2` for invalid input or execution errors. Errors and usage diagnostics go to
+stderr, with no JSON document on stdout. Scripts must check the exit code before
+parsing stdout and must accept exit `1` as a valid report. Only the trailing
+`--format json` option is supported; unknown options, formats, repeated options,
+and missing values exit `2`. For filenames beginning with `-`, use `./` or an
+absolute local path.
+
+Findings are not proof of comprehensive API compatibility. An empty JSON report
+means only that no supported changes were found; all known limitations below
+still apply.
+
 ## Install the CLI command locally
 
 From the source checkout, after installing dependencies and building:

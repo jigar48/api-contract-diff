@@ -51,6 +51,11 @@ try {
     ['invalid JSON', 2, ['compare', 'invalid.json', 'new.json'], /Error:/],
     ['remote reference', 2, ['compare', 'remote.json', 'new.json'], /Only relative local references/],
     ['usage', 2, [], /Usage:/],
+    ['JSON breaking', 1, ['compare', 'old.json', 'new.json', '--format', 'json'], /"schemaVersion":1/],
+    ['JSON unchanged', 0, ['compare', 'old.json', 'old.json', '--format', 'json'], /"count":0/],
+    ['JSON invalid input', 2, ['compare', 'invalid.json', 'new.json', '--format', 'json'], /Error:/],
+    ['JSON remote reference', 2, ['compare', 'remote.json', 'new.json', '--format', 'json'], /Only relative local references/],
+    ['invalid format', 2, ['compare', 'old.json', 'new.json', '--format', 'xml'], /Usage:/],
   ];
   for (const [name, status, args, pattern] of cases) {
     const result = npm(['exec', '--offline', '--yes=false', '--', manifest.name, ...args], {
@@ -61,9 +66,19 @@ try {
     assert.match(status === 2 ? result.stderr : result.stdout, pattern, name);
     assert.equal(status === 2 ? result.stdout : result.stderr, '', `${name}: unexpected output stream`);
     assert.doesNotMatch(result.stderr, /Network access attempted/);
+    if (status !== 2 && args.includes('--format')) {
+      const report = JSON.parse(result.stdout);
+      assert.equal(report.schemaVersion, 1);
+      assert.equal(report.count, status === 1 ? 5 : 0);
+      assert.equal(report.findings.length, report.count);
+      assert.deepEqual(Object.keys(report), ['schemaVersion', 'count', 'findings']);
+      if (status === 1) assert.deepEqual(new Set(report.findings.map(f => f.kind)),
+        new Set(['path-removed', 'operation-removed', 'property-removed', 'property-type-changed']));
+      assert.ok(!result.stdout.includes(consumer));
+    }
     console.log(`Installed CLI ${name}: exit ${status} PASS`);
   }
-  console.log(`Package ${manifest.version}: ${expected.length} allowlisted files; clean production install, bin shim, credential/path scan, and 5 offline CLI smoke checks PASS.`);
+  console.log(`Package ${manifest.version}: ${expected.length} allowlisted files; clean production install, bin shim, credential/path scan, and ${cases.length} offline CLI smoke checks PASS.`);
 } finally {
   // Only the exact directory returned by mkdtemp is removed; never the workspace.
   await rm(temporary, { recursive: true, force: true });

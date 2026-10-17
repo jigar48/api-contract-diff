@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { compareSpecs } from '../dist/compare.js';
 import { pointer, loadSpec } from '../dist/loader.js';
-import { formatReport } from '../dist/report.js';
+import { formatReport, formatJsonReport } from '../dist/report.js';
 
 const spec = schema => ({ paths: { '/pets': { get: { responses: { 200: { content: { 'application/json': { schema } } } } } } } });
 const object = properties => ({ type: 'object', properties });
@@ -47,6 +47,20 @@ test('JSON Pointers support escaped and encoded names but exclude prototypes', (
 });
 test('terminal control characters are escaped', () => {
   assert.ok(!formatReport([{ kind: 'path-removed', path: '/\u001b[31m' }]).includes('\u001b'));
+});
+
+test('JSON escapes untrusted strings and serializes only finding fields', () => {
+  const finding = { kind: 'path-removed', path: '/quote"/slash\\/line\n/\u001b' };
+  const output = formatJsonReport([{ ...finding, filename: 'private-input.json', credentials: 'private-marker', specification: { info: 'private-description' } }]);
+  assert.deepEqual(JSON.parse(output), { schemaVersion: 1, count: 1, findings: [finding] });
+  assert.doesNotMatch(output, /private-|[\u0000-\u001f]/);
+});
+
+test('JSON comparison order is independent of object key insertion order', () => {
+  const before = spec(object({ z: { type: 'string' }, a: { type: 'integer' } }));
+  const reordered = spec(object({ a: { type: 'integer' }, z: { type: 'string' } }));
+  const after = spec(object({}));
+  assert.equal(formatJsonReport(compareSpecs(before, after)), formatJsonReport(compareSpecs(reordered, after)));
 });
 test('Paths Object extensions are not API paths', () => {
   assert.deepEqual(compareSpecs({ paths: { 'x-note': 'old' } }, { paths: {} }), []);
