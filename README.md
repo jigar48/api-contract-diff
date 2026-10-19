@@ -5,13 +5,13 @@
 
 **Spot API contract changes before they surprise an integration.**
 
-`api-contract-diff` compares two local OpenAPI JSON specifications and reports
+`api-contract-diff` compares two local OpenAPI JSON or YAML specifications and reports
 removed endpoints, removed response fields, and changed response property types.
 Use it when reviewing an API update or checking a supplier's specification before
 updating your integration. It prints a readable terminal report and returns an
 exit code you can use in CI.
 
-This is an early `0.1.0-rc.1` candidate, **not a comprehensive compatibility gate**.
+This is an early `0.1.0-rc.2` candidate, **not a comprehensive compatibility gate**.
 Exit 0 means no supported changes were detected; it does not prove compatibility.
 There is no published npm package assumed by these instructions.
 
@@ -44,6 +44,55 @@ To compare your own specifications:
 ```sh
 node dist/cli.js compare old.json new.json
 ```
+
+## Supported formats and YAML security
+
+Local JSON, `.yaml`, and `.yml` inputs can be compared in any combination.
+YAML uses strict YAML 1.2 core-schema parsing with the maintained `yaml` parser.
+Extensions are case insensitive; format selection uses the canonical filename
+after symlink resolution. Other extensions retain JSON parsing. Both formats use
+the existing validation, comparison, finding categories, and output schema.
+
+After the source installation and build above:
+
+```sh
+node dist/cli.js compare examples/orders-before.yaml examples/orders-after.yaml
+node dist/cli.js compare examples/orders-before.json examples/orders-after.yaml --format json
+node dist/cli.js compare examples/orders-before.yaml examples/orders-after.json
+node dist/cli.js compare examples/orders-before.yaml examples/orders-before.yaml
+```
+
+The first three commands exit 1 with the same five findings; the last exits 0.
+The YAML example files contain the same synthetic data as their JSON counterparts.
+
+Each YAML file, including references, is limited to **2 MiB (2,097,152 bytes)**
+of valid UTF-8 and **64 structural levels**. The root is level 0; each mapping
+key, mapping value, or sequence item adds one level. Depth is checked before
+recursive AST composition and during conversion. Errors produce one short
+diagnostic without source excerpts.
+
+Before AST composition (including duplicate-key processing), each collection
+is limited to **1,024 items**, and a file may contain at most **10,000 total
+collection items**. A mapping pair counts as one item; a sequence element counts
+as one item. Nested collections also contribute their own items. These limits
+apply to block and flow syntax, including referenced YAML files. The library's
+syntax tree is checked once with an iterative traversal, then reused for strict
+AST composition; the input is not parsed twice. These conservative budgets bound
+the parser's quadratic per-mapping duplicate checks. Large generated documents
+may need splitting into local reference files, subject to the same per-file limits.
+
+Invalid syntax, multiple documents, duplicate keys, non-string mapping keys,
+custom/non-core tags, anchors, aliases, merge keys, non-finite numbers, and
+integers outside JavaScript's safe range are rejected. Only YAML 1.2 version
+directives are supported. Quote numeric response keys such as `'200'`; they are
+never silently coerced to strings. YAML 1.2 values such as `yes`, `no`, and dates
+remain strings.
+
+Local references can mix JSON and YAML at every step. All existing reference
+restrictions apply: no HTTP/HTTPS, other URI schemes, remote fetching, absolute
+reference paths, directory escape, or symlink escape from the entry directory.
+Limits apply per YAML file, not to total reference count, aggregate bytes, or
+comparison work. Use stable, trusted inputs; this is not a filesystem sandbox.
 
 ## A realistic before/after example
 
@@ -190,7 +239,7 @@ You can also create and install a local tarball; this does not publish anything:
 
 ```sh
 npm pack
-npm install --global ./api-contract-diff-0.1.0-rc.1.tgz
+npm install --global ./api-contract-diff-0.1.0-rc.2.tgz
 api-contract-diff compare old.json new.json
 ```
 
@@ -213,11 +262,12 @@ dependencies requires registry access; comparison never fetches HTTP resources.
 - **Conservative findings.** Optional field removal and compatible type changes
   can be reported. Inferring object/array types from `properties`/`items` is a
   reporting heuristic, not a complete interpretation of JSON Schema semantics.
-- **JSON only.** Supports the pinned validator's OpenAPI versions 3.0.0–3.0.4 and
-  3.1.0–3.1.2. YAML, `$id` resource scopes, anchors, dynamic references, and custom
+- **OpenAPI versions.** Supports the pinned validator's OpenAPI versions 3.0.0–3.0.4 and
+  3.1.0–3.1.2. `$id` resource scopes, JSON Schema anchors, dynamic references, and custom
   dialects are unsupported. Literal schema-like keys in examples or extensions
   can be interpreted as schema syntax and rejected.
-- **Trusted local inputs.** No file-size, file-count, depth, or work limits.
+- **Trusted local inputs.** YAML has the per-file limits above; JSON retains
+  its existing behavior without size or depth limits. No aggregate file-count or work limits.
   Filesystem races and mounted network filesystems are outside the tool's
   protection. This is not a filesystem sandbox.
 
@@ -231,7 +281,7 @@ OpenAPI structure is validated with Swagger Parser. OpenAPI 3.1 schemas also
 undergo JSON Schema 2020-12 meta-schema validation with Ajv. All validation schemas
 are bundled dependencies; external resolvers are disabled.
 
-References may use internal JSON Pointers or relative JSON files, for example
+References may use internal JSON Pointers or relative JSON or YAML files, for example
 `./schemas/order.json#/Order`. Each reference resolves relative to its containing
 file. All referenced files must stay inside the entry specification's directory,
 including after canonical path and symlink resolution. All `$ref` values are

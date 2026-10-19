@@ -1,7 +1,95 @@
-import { readFile, realpath } from 'node:fs/promises';
+import { open, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import SwaggerParser from '@apidevtools/swagger-parser';
 import { Ajv2020 } from 'ajv/dist/2020.js';
+import { Composer, Lexer, Parser, isAlias, isMap, isSeq, isScalar, type CST } from 'yaml';
+
+const YAML_MAX_BYTES = 2 * 1024 * 1024;
+const YAML_MAX_DEPTH = 64;
+const YAML_MAX_COLLECTION_ITEMS = 1024;
+const YAML_MAX_TOTAL_ITEMS = 10_000;
+
+/** Bound reads before parsing; never expand aliases or coerce mapping keys. */
+async function readDocument(file: string): Promise<unknown> {
+  if (!/\.ya?ml$/i.test(file)) return JSON.parse(await readFile(file, 'utf8'));
+  const handle = await open(file, 'r');
+  let source: string;
+  try {
+    const buffer = Buffer.alloc(YAML_MAX_BYTES + 1);
+    let size = 0;
+    while (size < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, size, buffer.length - size, null);
+      if (!bytesRead) break;
+      size += bytesRead;
+    }
+    if (size > YAML_MAX_BYTES) throw new Error('YAML exceeds the 2 MiB input limit');
+    try { source = new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, size)); }
+    catch { throw new Error('YAML must be valid UTF-8'); }
+  } finally { await handle.close(); }
+  // Parser builds syntax only; Composer performs duplicate-key comparisons.
+  // Check each completed CST exactly once before handing any tokens to Composer.
+  const parser = new Parser();
+  const tokens: CST.Token[] = [];
+  let documents = 0;
+  let totalItems = 0;
+  function checkToken(token: CST.Token): void {
+    if (token.type === 'document' && ++documents > 1) throw new Error('Multiple YAML documents are not supported');
+    const pending = [token];
+    while (pending.length) {
+      const current = pending.pop()!;
+      if (current.type === 'document') {
+        if (current.value) pending.push(current.value);
+      } else if (current.type === 'block-map' || current.type === 'block-seq' || current.type === 'flow-collection') {
+        if (current.items.length > YAML_MAX_COLLECTION_ITEMS) throw new Error('YAML exceeds the collection limit of 1024 items');
+        totalItems += current.items.length;
+        if (totalItems > YAML_MAX_TOTAL_ITEMS) throw new Error('YAML exceeds the total collection limit of 10000 items');
+        for (const item of current.items) {
+          if (item.key) pending.push(item.key);
+          if (item.value) pending.push(item.value);
+        }
+      }
+    }
+    tokens.push(token);
+  }
+  for (const lexeme of new Lexer().lex(source)) {
+    for (const token of parser.next(lexeme)) checkToken(token);
+    if (parser.stack.length > YAML_MAX_DEPTH + 1) throw new Error('YAML exceeds the maximum structural depth of 64');
+  }
+  for (const token of parser.end()) checkToken(token);
+  const composer = new Composer({
+    version: '1.2', schema: 'core', strict: true, uniqueKeys: true,
+    merge: false, resolveKnownTags: false, prettyErrors: false, logLevel: 'silent',
+  });
+  const [doc] = composer.compose(tokens, true, source.length);
+  const issue = doc.errors[0] ?? doc.warnings[0];
+  if (issue) throw new Error(`Invalid YAML (${issue.code})`);
+  if (doc.directives?.yaml.version !== '1.2') throw new Error('Only YAML 1.2 is supported');
+  function convert(node: unknown, depth: number): unknown {
+    if (depth > YAML_MAX_DEPTH) throw new Error('YAML exceeds the maximum structural depth of 64');
+    if (node === null) return null;
+    if (isAlias(node)) throw new Error('YAML aliases are not supported');
+    if (!isScalar(node) && !isMap(node) && !isSeq(node)) throw new Error('Unsupported YAML node');
+    if (node.anchor) throw new Error('YAML anchors are not supported');
+    const allowedTags = ['str', 'null', 'bool', 'int', 'float', 'map', 'seq'].map(tag => `tag:yaml.org,2002:${tag}`);
+    if (node.tag && !allowedTags.includes(node.tag)) throw new Error('Unsupported YAML tag');
+    if (isMap(node)) {
+      const result: ObjectNode = {};
+      for (const pair of node.items) {
+        if (!isScalar(pair.key) || typeof pair.key.value !== 'string') throw new Error('YAML mapping keys must be strings; quote numeric response codes');
+        const key = convert(pair.key, depth + 1) as string;
+        if (key === '<<') throw new Error('YAML merge keys are not supported');
+        if (Object.hasOwn(result, key)) throw new Error('Duplicate YAML mapping key');
+        Object.defineProperty(result, key, { value: convert(pair.value, depth + 1), enumerable: true, writable: true, configurable: true });
+      }
+      return result;
+    }
+    if (isSeq(node)) return node.items.map(item => convert(item, depth + 1));
+    const value = node.value;
+    if (typeof value === 'number' && (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value)))) throw new Error('YAML numbers must be finite and integers must be safe');
+    return value;
+  }
+  return convert(doc.contents, 0);
+}
 
 export type ObjectNode = Record<string, any>;
 export const isObject = (value: unknown): value is ObjectNode =>
@@ -43,7 +131,7 @@ export async function loadSpec(filename: string): Promise<ObjectNode> {
     }
     const cached = documents.get(canonical);
     if (cached) return cached.id;
-    const value: unknown = JSON.parse(await readFile(canonical, 'utf8'));
+    const value: unknown = await readDocument(canonical);
     const id = `d${documents.size}`;
     documents.set(canonical, { id, value });
     async function visit(node: unknown): Promise<void> {
@@ -85,7 +173,7 @@ export async function loadSpec(filename: string): Promise<ObjectNode> {
   await load(entry);
   const root = documents.get(entry)!.value;
   if (!isObject(root) || typeof root.openapi !== 'string' || !/^3\.[01]\.\d+$/.test(root.openapi)) {
-    throw new Error('Expected an OpenAPI 3.0 or 3.1 JSON document');
+    throw new Error('Expected an OpenAPI 3.0 or 3.1 JSON or YAML document');
   }
   const is30 = root.openapi.startsWith('3.0.');
   if (Object.hasOwn(root, 'x-contract-documents')) throw new Error('Reserved extension: x-contract-documents');

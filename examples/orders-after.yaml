@@ -1,0 +1,49 @@
+openapi: 3.1.0
+info:
+  title: Order API
+  version: 2.0.0
+paths:
+  /orders/{orderId}:
+    parameters:
+      - name: orderId
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      responses:
+        "200":
+          description: Order details
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - orderId
+                  - total
+                  - customer
+                  - items
+                properties:
+                  orderId:
+                    type: string
+                  total:
+                    type: string
+                  customer:
+                    type: object
+                    required:
+                      - name
+                    properties:
+                      name:
+                        type: string
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - sku
+                        - quantity
+                      properties:
+                        sku:
+                          type: string
+                        quantity:
+                          type: string

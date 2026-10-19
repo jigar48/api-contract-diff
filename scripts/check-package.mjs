@@ -3,13 +3,16 @@ import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:f
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { stringify } from 'yaml';
 import { npm, scanFile, success } from './release-utils.mjs';
 
 const root = process.cwd();
 // The clean consumer deliberately has a space in its path to exercise bin quoting.
 const temporary = await mkdtemp(path.join(tmpdir(), 'api-contract-diff package-'));
 try {
-  const pack = JSON.parse(success(npm(['pack', '--json', '--silent', '--pack-destination', temporary]), 'npm pack'))[0];
+  const packed = JSON.parse(success(npm(['pack', '--json', '--silent', '--pack-destination', temporary]), 'npm pack'));
+  // npm <=11 returns an array; npm 12 keys results by package name.
+  const pack = Object.values(packed)[0];
   const expected = ['package.json', 'README.md', 'LICENSE', 'SECURITY.md',
     ...['cli', 'compare', 'loader', 'report'].flatMap(name => [`dist/${name}.js`, `dist/${name}.d.ts`])].sort();
   assert.deepEqual(pack.files.map(file => file.path).sort(), expected, 'Unexpected files in npm package');
@@ -23,6 +26,8 @@ try {
   const installedManifest = JSON.parse(await readFile(path.join(installed, 'package.json'), 'utf8'));
   assert.equal(installedManifest.version, manifest.version);
   assert.deepEqual(installedManifest.bin, manifest.bin);
+  assert.deepEqual(installedManifest.dependencies, manifest.dependencies);
+  success(npm(['ls', '--omit=dev', '--all'], { cwd: consumer }), 'Installed production dependency tree');
   async function inventory(directory, prefix = '') {
     const entries = await readdir(directory, { withFileTypes: true });
     const files = [];
@@ -39,6 +44,9 @@ try {
   await access(path.join(consumer, 'node_modules', '.bin', process.platform === 'win32' ? 'api-contract-diff.cmd' : 'api-contract-diff'));
   await assert.rejects(access(path.join(consumer, 'node_modules', 'typescript')));
   for (const name of ['old', 'new']) await writeFile(path.join(consumer, `${name}.json`), await readFile(path.join(root, 'test', 'fixtures', `${name}.json`)));
+  for (const name of ['old', 'new']) await writeFile(path.join(consumer, name + '.yaml'), stringify(JSON.parse(await readFile(path.join(consumer, name + '.json'), 'utf8'))));
+  await writeFile(path.join(consumer, 'invalid.yaml'), 'paths: [');
+  await writeFile(path.join(consumer, 'wide.yaml'), Array.from({ length: 1025 }, (_, i) => `k${i}: 0\n`).join(''));
   await writeFile(path.join(consumer, 'invalid.json'), '{');
   const remote = JSON.parse(await readFile(path.join(consumer, 'old.json'), 'utf8'));
   remote.components = { schemas: { Remote: { $ref: 'https://example.invalid/schema.json' } } };
@@ -50,6 +58,12 @@ try {
     ['breaking', 1, ['compare', 'old.json', 'new.json'], /5 breaking change/],
     ['invalid JSON', 2, ['compare', 'invalid.json', 'new.json'], /Error:/],
     ['remote reference', 2, ['compare', 'remote.json', 'new.json'], /Only relative local references/],
+    ['YAML breaking', 1, ['compare', 'old.yaml', 'new.yaml'], /5 breaking change/],
+    ['mixed JSON YAML', 1, ['compare', 'old.json', 'new.yaml', '--format', 'json'], /"schemaVersion":1/],
+    ['mixed YAML JSON', 1, ['compare', 'old.yaml', 'new.json', '--format', 'json'], /"schemaVersion":1/],
+    ['YAML unchanged', 0, ['compare', 'old.yaml', 'old.yaml', '--format', 'json'], /"count":0/],
+    ['invalid YAML', 2, ['compare', 'invalid.yaml', 'new.yaml'], /Error:/],
+    ['YAML collection budget', 2, ['compare', 'wide.yaml', 'new.yaml'], /collection limit of 1024 items/],
     ['usage', 2, [], /Usage:/],
     ['JSON breaking', 1, ['compare', 'old.json', 'new.json', '--format', 'json'], /"schemaVersion":1/],
     ['JSON unchanged', 0, ['compare', 'old.json', 'old.json', '--format', 'json'], /"count":0/],
@@ -58,7 +72,7 @@ try {
     ['invalid format', 2, ['compare', 'old.json', 'new.json', '--format', 'xml'], /Usage:/],
   ];
   for (const [name, status, args, pattern] of cases) {
-    const result = npm(['exec', '--offline', '--yes=false', '--', manifest.name, ...args], {
+    const result = npm(['--silent', 'exec', '--offline', '--yes=false', '--', manifest.name, ...args], {
       cwd: consumer,
       env: { ...process.env, NODE_OPTIONS: `--import=${pathToFileURL(guard).href}`, npm_config_audit: 'false', npm_config_fund: 'false' },
     });

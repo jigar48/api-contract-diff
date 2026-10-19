@@ -41,7 +41,13 @@ disclosure. Please allow time for that coordination; no fixed timeline is promis
 The CLI rejects remote references and disables network resolvers. It checks local
 reference containment using canonical paths. It does not provide a filesystem or
 process sandbox: mounted network filesystems, concurrent filesystem changes, and
-unbounded input sizes remain risks. Compare stable, trusted local JSON files.
+unbounded aggregate work remain risks. YAML files have byte and depth limits.
+Before YAML AST composition and duplicate-key checks, collections are limited
+to 1,024 items each and 10,000 items in total per file (mapping pairs and sequence
+elements, including nested collections). Each YAML file also has a 2 MiB UTF-8
+input limit and structural depth limit of 64. Referenced YAML uses the same limits.
+JSON retains its existing unrestricted size behavior. Compare stable, trusted
+local JSON or YAML files. See README.md for exact YAML restrictions.
 
 Exit 0 means no supported changes were detected. It is not proof of API
 compatibility or input safety. See [README.md](README.md) for known limitations.

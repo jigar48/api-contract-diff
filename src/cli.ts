@@ -8,7 +8,7 @@ async function main(): Promise<number> {
   if (args[0] !== 'compare' || ![3, 5].includes(args.length) ||
       args.slice(1, 3).some(arg => arg.startsWith('-')) ||
       (args.length === 5 && (args[3] !== '--format' || args[4] !== 'json'))) {
-    console.error('Usage: api-contract-diff compare <old.json> <new.json> [--format json]');
+    console.error('Usage: api-contract-diff compare <old.json|yaml|yml> <new.json|yaml|yml> [--format json]');
     console.error('Expected two local input files and, optionally, --format json.');
     return 2;
   }
