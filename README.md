@@ -338,6 +338,14 @@ and AI automation consulting.
 [Email Jigar](mailto:jigar.prajapati48@gmail.com) ·
 [GitHub profile](https://github.com/jigar48)
 
+### Support This Project
+
+If this independent open-source project is useful to you, you can support its ongoing maintenance.
+
+[![Buy Me a Coffee](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/buildwithjigar)
+
+Support is optional; issue reports and feedback are also welcome.
+
 ## License and security
 
 [MIT license](LICENSE). For responsible disclosure, read [SECURITY.md](SECURITY.md).
