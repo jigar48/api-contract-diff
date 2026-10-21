@@ -1,0 +1,65 @@
+name: OpenAPI PR guard
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      # Repository-relative entry paths; dependencies must be below each entry's directory.
+      BASE_SPEC: api/openapi.yaml
+      HEAD_SPEC: api/openapi.yaml
+    steps:
+      - name: Check out trusted comparison tool
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: jigar48/api-contract-diff
+          ref: 3ba71a75ebbdf246f3faeb0dce6925fccc7544d9
+          path: contract-tool
+          persist-credentials: false
+          submodules: false
+          lfs: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '22.22.0'
+          package-manager-cache: false
+
+      - name: Install and build trusted tool
+        working-directory: contract-tool
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run build
+
+      - name: Check out PR base tree
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: contract-base
+          persist-credentials: false
+          submodules: false
+          lfs: false
+
+      - name: Check out proposed tree
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: contract-head
+          persist-credentials: false
+          submodules: false
+          lfs: false
+
+      - name: Compare contracts
+        shell: bash
+        run: |
+          node "$GITHUB_WORKSPACE/contract-tool/dist/cli.js" compare \
+            "$GITHUB_WORKSPACE/contract-base/$BASE_SPEC" \
+            "$GITHUB_WORKSPACE/contract-head/$HEAD_SPEC" --format json

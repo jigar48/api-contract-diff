@@ -147,6 +147,10 @@ or properties suppress redundant descendant-removal reports.
 
 ## Exit codes
 
+For pull requests, use the [GitHub Actions PR guard](docs/github-actions.md):
+a pinned, read-only workflow comparing complete base and head specification trees,
+with configuration, a synthetic demonstration, and security/detection limitations.
+
 | Code | Meaning |
 | --- | --- |
 | `0` | No supported breaking changes detected |
