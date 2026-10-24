@@ -6,7 +6,8 @@
 **Spot API contract changes before they surprise an integration.**
 
 `api-contract-diff` compares two local OpenAPI JSON or YAML specifications and reports
-removed endpoints, removed response fields, and changed response property types.
+removed endpoints, removed response fields, changed response property types, and
+newly required query parameters on existing operations.
 Use it when reviewing an API update or checking a supplier's specification before
 updating your integration. It prints a readable terminal report and returns an
 exit code you can use in CI.
@@ -135,6 +136,7 @@ it contains no customer data. `/*` in the report means an array item.
 | Removed HTTP operations | `DELETE /orders/{orderId}` disappears |
 | Removed response properties | `customer.email` disappears |
 | Changed response property types | `total` changes from `number` to `string` |
+| Newly required query parameters | `GET /orders` now requires `region` |
 
 Detection covers nested objects, array items, and named properties inside map
 values. It combines structural declarations through `allOf` and resolves local
@@ -144,6 +146,57 @@ each existing status code and media type.
 Both optional and required property removals are reported. Every declared type
 change is treated conservatively as breaking. Removed parent paths, operations,
 or properties suppress redundant descendant-removal reports.
+
+### Newly required query parameters
+
+For existing operations in OpenAPI 3.0 and 3.1, a query parameter is reported when
+it is new and `required: true`, or changes from optional to required. For example:
+
+```yaml
+# Before: GET /orders has no query parameters (or region is optional).
+get:
+  responses:
+    '200': { description: OK }
+```
+
+```yaml
+# After:
+get:
+  parameters:
+    - name: region
+      in: query
+      required: true
+      schema: { type: string }
+  responses:
+    '200': { description: OK }
+```
+
+These are illustrative Path Item fragments, not a complete specification.
+Compare complete documents with:
+
+```sh
+node dist/cli.js compare examples/query-before.yaml examples/query-after.yaml
+```
+
+```text
+1 breaking change(s) detected:
+- Newly required query parameter: GET /orders parameter "region"
+```
+
+This exits 1. With `--format json`, the finding is:
+
+```json
+{"schemaVersion":1,"count":1,"findings":[{"kind":"query-parameter-newly-required","path":"/orders","method":"get","parameter":"region"}]}
+```
+
+Path-level parameters are inherited; operation-level declarations override the
+same case-sensitive `(name, in)` identity, including when the override is optional.
+Internal and relative local parameter references use the existing resolver.
+New optional and unchanged required parameters produce no finding. New operations
+are not checked; removed paths/operations produce only their existing removal
+findings. Parameter names are sorted within each operation, before response checks.
+See the [implementation and security review](docs/query-parameter-review.md) for
+the reference, escaping, dependency, and resource-limit assessment.
 
 ## Exit codes
 
@@ -203,11 +256,20 @@ are strings; absent fields are omitted rather than emitted as `null`.
 | `operation-removed` | `path`, `method` |
 | `property-removed` | `path`, `method`, `response`, `mediaType`, `property` |
 | `property-type-changed` | `path`, `method`, `response`, `mediaType`, `property`, `before`, `after` |
+| `query-parameter-newly-required` | `path`, `method`, `parameter` |
+
+Compatibility decision: `schemaVersion` remains **1**. The new kind and its
+`parameter` string field are additive; the envelope and all existing finding
+shapes retain their meaning. Version 1 consumers must tolerate unknown finding
+kinds and additional fields. Consumers with a closed kind allowlist must add
+`query-parameter-newly-required` before adopting this update. Renaming/removing
+existing fields or changing their types/meaning would require a new schema version.
 
 `path` is an API path, never the input filename. `method` is lowercase;
 `response` is the status key (including ranges or `default`); `mediaType` is the
 content key. `property` uses the same escaped locations as the terminal report,
-including `/*` and `/{key}`. `before` and `after` are normalized type descriptions
+and `parameter` is the original query parameter name. Property locations include
+`/*` and `/{key}`. `before` and `after` are normalized type descriptions
 (for example, `integer`, `null | string`, `unspecified`, or `never`).
 
 Paths, response keys, media types, and property names are traversed in sorted
@@ -254,11 +316,13 @@ dependencies requires registry access; comparison never fetches HTTP resources.
 ## Known limitations
 
 - **Structural checks only.** No `oneOf`/`anyOf`, tuple `prefixItems`, discriminator,
-  constraint, enum, format, requiredness-only, or general schema-satisfiability
+  constraint, enum, format, response-property requiredness-only, or general schema-satisfiability
   analysis. `allOf` supports the structural keywords described above, not every
   possible JSON Schema intersection.
-- **Responses only.** Requests, parameters, headers, callbacks, and webhooks are
-  not compared. Root response type changes and map removal have no separate
+- **Partial request checks.** Only newly required query parameters are checked.
+  Request bodies, headers, cookies, other parameter locations, query schema/type
+  changes, serialization, and parameter removals are not compared. Callbacks and
+  webhooks are not compared. Root response type changes and map removal have no separate
   finding category.
 - **Literal status matching.** Equivalence between an explicit code, a range such
   as `2XX`, and `default` is not calculated. Removing a bodyless response or a

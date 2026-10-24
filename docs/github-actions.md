@@ -128,11 +128,14 @@ and non-pointer references are rejected. See the [README](../README.md#supported
 Exit 0 means only that no supported breaking change was detected, not that the API
 is compatible. The tool detects removed paths/operations, removed named response
 properties, and changed response property types, including nested objects, arrays,
-maps, local references, and structural `allOf` declarations.
+maps, local references, and structural `allOf` declarations. It also detects newly
+required query parameters on existing operations, with path inheritance and
+operation overrides.
 
-It does not compare requests, parameters, headers, callbacks, or webhooks. It does
+It does not compare request bodies, other parameter locations, query schemas or
+serialization, headers, callbacks, or webhooks. It does
 not generally analyze `oneOf`/`anyOf`, tuple `prefixItems`, enums, formats,
-constraints, requiredness-only changes, discriminators, or schema satisfiability.
+constraints, response-property requiredness-only changes, discriminators, or schema satisfiability.
 Root response type changes and map removal have no separate finding category.
 Status codes and media types match literally; removal of a bodyless response or
 one without named properties may go undetected. Optional-property removals and

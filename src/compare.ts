@@ -1,16 +1,28 @@
 import { isObject, type ObjectNode } from './loader.js';
 
 export interface Change {
-  kind: 'path-removed' | 'operation-removed' | 'property-removed' | 'property-type-changed';
+  kind: 'path-removed' | 'operation-removed' | 'property-removed' | 'property-type-changed' | 'query-parameter-newly-required';
   path: string;
   method?: string;
   response?: string;
   mediaType?: string;
   property?: string;
+  parameter?: string;
   before?: string;
   after?: string;
 }
 const methods = ['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'];
+
+/** Inputs are validated and dereferenced by loadSpec. Only query identities matter here. */
+function queryParameters(pathItem: ObjectNode, operation: ObjectNode): Map<string, boolean> {
+  const result = new Map<string, boolean>();
+  for (const parameters of [pathItem.parameters, operation.parameters]) {
+    for (const parameter of parameters ?? []) {
+      if (parameter.in === 'query') result.set(parameter.name, parameter.required === true);
+    }
+  }
+  return result;
+}
 
 function parts(schema: unknown, seen = new Set<unknown>()): ObjectNode[] {
   if (!isObject(schema) || seen.has(schema)) return [];
@@ -98,6 +110,13 @@ export function compareSpecs(oldSpec: ObjectNode, newSpec: ObjectNode): Change[]
       if (!newOperation) {
         changes.push({ kind: 'operation-removed', path: apiPath, method });
         continue;
+      }
+      const oldQuery = queryParameters(oldSpec.paths[apiPath], oldOperation);
+      const newQuery = queryParameters(newSpec.paths[apiPath], newOperation);
+      for (const name of [...newQuery.keys()].sort()) {
+        if (newQuery.get(name) && oldQuery.get(name) !== true) {
+          changes.push({ kind: 'query-parameter-newly-required', path: apiPath, method, parameter: name });
+        }
       }
       for (const status of Object.keys(oldOperation.responses ?? {}).filter(key => key === 'default' || /^[1-5](?:\d{2}|XX)$/.test(key)).sort()) {
         const response = oldOperation.responses[status];
