@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Add `request-body-newly-required` with `path` and lowercase `method` when an
+  existing operation's absent/optional request body becomes `required: true`.
+  Omitted `required` is false. Reuse validated local references for OpenAPI 3.0/3.1
+  and JSON/YAML; no request schema or content-type compatibility analysis.
+- Retain JSON schemaVersion 1, exit codes, existing findings and suppression.
+  Closed-enum consumers must add `request-body-newly-required` to their allowlist;
+  version 1 consumers must tolerate additive kinds. Body findings follow query
+  findings and precede response findings in each operation.
+- Add synthetic mixed-format order body fixtures, an offline CLI demonstration,
+  regression coverage, and a security/resource-limit review.
+
 ## 0.1.0-rc.2 (local candidate)
 
 - Support local OpenAPI YAML 1.2 `.yaml`/`.yml` files, including mixed JSON/YAML

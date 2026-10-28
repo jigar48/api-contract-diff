@@ -1,7 +1,7 @@
 import { isObject, type ObjectNode } from './loader.js';
 
 export interface Change {
-  kind: 'path-removed' | 'operation-removed' | 'property-removed' | 'property-type-changed' | 'query-parameter-newly-required';
+  kind: 'path-removed' | 'operation-removed' | 'property-removed' | 'property-type-changed' | 'query-parameter-newly-required' | 'request-body-newly-required';
   path: string;
   method?: string;
   response?: string;
@@ -117,6 +117,9 @@ export function compareSpecs(oldSpec: ObjectNode, newSpec: ObjectNode): Change[]
         if (newQuery.get(name) && oldQuery.get(name) !== true) {
           changes.push({ kind: 'query-parameter-newly-required', path: apiPath, method, parameter: name });
         }
+      }
+      if (newOperation.requestBody?.required === true && oldOperation.requestBody?.required !== true) {
+        changes.push({ kind: 'request-body-newly-required', path: apiPath, method });
       }
       for (const status of Object.keys(oldOperation.responses ?? {}).filter(key => key === 'default' || /^[1-5](?:\d{2}|XX)$/.test(key)).sort()) {
         const response = oldOperation.responses[status];

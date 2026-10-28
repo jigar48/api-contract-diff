@@ -24,6 +24,7 @@ export function formatReport(changes: Change[]): string {
     const operation = `${change.method!.toUpperCase()} ${change.path}`;
     if (change.kind === 'operation-removed') return `- Removed operation: ${operation}`;
     if (change.kind === 'query-parameter-newly-required') return `- Newly required query parameter: ${operation} parameter ${JSON.stringify(change.parameter)}`;
+    if (change.kind === 'request-body-newly-required') return `- Newly required request body: ${operation}`;
     const context = `${operation} → ${change.response} (${change.mediaType}) ${change.property}`;
     return change.kind === 'property-removed' ? `- Removed response property: ${context}` : `- Changed response property type: ${context}: ${change.before} → ${change.after}`;
   });

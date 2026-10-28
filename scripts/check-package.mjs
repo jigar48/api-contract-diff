@@ -55,12 +55,16 @@ try {
   queryAfter.paths['/orders'].get.parameters = [{ name: 'region', in: 'query', required: true, schema: { type: 'string' } }];
   await writeFile(path.join(consumer, 'query-before.json'), JSON.stringify(queryBefore));
   await writeFile(path.join(consumer, 'query-after.yaml'), stringify(queryAfter));
+  const bodyAfter = structuredClone(queryBefore);
+  bodyAfter.paths['/orders'].get.requestBody = { required: true, content: { 'application/json': { schema: { type: 'object' } } } };
+  await writeFile(path.join(consumer, 'body-after.yaml'), stringify(bodyAfter));
   const remote = JSON.parse(await readFile(path.join(consumer, 'old.json'), 'utf8'));
   remote.components = { schemas: { Remote: { $ref: 'https://example.invalid/schema.json' } } };
   await writeFile(path.join(consumer, 'remote.json'), JSON.stringify(remote));
   const guard = path.join(consumer, 'network-guard.mjs');
   await writeFile(guard, await readFile(path.join(root, 'test', 'network-guard.mjs')));
   const cases = [
+    ['newly required body', 1, ['compare', 'query-before.json', 'body-after.yaml', '--format', 'json'], /request-body-newly-required/],
     ['newly required query', 1, ['compare', 'query-before.json', 'query-after.yaml', '--format', 'json'], /query-parameter-newly-required/],
     ['unchanged', 0, ['compare', 'old.json', 'old.json'], /No breaking changes/],
     ['breaking', 1, ['compare', 'old.json', 'new.json'], /5 breaking change/],
@@ -91,11 +95,14 @@ try {
     if (status !== 2 && args.includes('--format')) {
       const report = JSON.parse(result.stdout);
       assert.equal(report.schemaVersion, 1);
-      assert.equal(report.count, name === 'newly required query' ? 1 : status === 1 ? 5 : 0);
+      assert.equal(report.count, ['newly required query', 'newly required body'].includes(name) ? 1 : status === 1 ? 5 : 0);
       assert.equal(report.findings.length, report.count);
       assert.deepEqual(Object.keys(report), ['schemaVersion', 'count', 'findings']);
       if (name === 'newly required query') assert.deepEqual(report.findings, [
         { kind: 'query-parameter-newly-required', path: '/orders', method: 'get', parameter: 'region' },
+      ]);
+      else if (name === 'newly required body') assert.deepEqual(report.findings, [
+        { kind: 'request-body-newly-required', path: '/orders', method: 'get' },
       ]);
       else if (status === 1) assert.deepEqual(new Set(report.findings.map(f => f.kind)),
         new Set(['path-removed', 'operation-removed', 'property-removed', 'property-type-changed']));

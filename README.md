@@ -7,7 +7,7 @@
 
 `api-contract-diff` compares two local OpenAPI JSON or YAML specifications and reports
 removed endpoints, removed response fields, changed response property types, and
-newly required query parameters on existing operations.
+newly required query parameters and request bodies on existing operations.
 Use it when reviewing an API update or checking a supplier's specification before
 updating your integration. It prints a readable terminal report and returns an
 exit code you can use in CI.
@@ -136,6 +136,7 @@ it contains no customer data. `/*` in the report means an array item.
 | Removed HTTP operations | `DELETE /orders/{orderId}` disappears |
 | Removed response properties | `customer.email` disappears |
 | Changed response property types | `total` changes from `number` to `string` |
+| Newly required request bodies | `POST /orders` now requires a body |
 | Newly required query parameters | `GET /orders` now requires `region` |
 
 Detection covers nested objects, array items, and named properties inside map
@@ -198,6 +199,38 @@ findings. Parameter names are sorted within each operation, before response chec
 See the [implementation and security review](docs/query-parameter-review.md) for
 the reference, escaping, dependency, and resource-limit assessment.
 
+### Newly required request bodies
+
+On existing HTTP operations in OpenAPI 3.0 and 3.1, `request-body-newly-required`
+reports an absent or optional body becoming `required: true`. Omitted `required`
+means false. Unchanged required bodies, newly optional bodies, and new operations
+produce no body finding. Removed paths/operations retain their existing removal
+findings only. Internal and relative local requestBody references reuse the
+validated, dereferenced document graph.
+
+Reproduce the synthetic order API example after building:
+
+```sh
+node dist/cli.js compare examples/order-body-before.json examples/order-body-after.yaml
+```
+
+This mixed-format demonstration exits 1 and prints:
+
+```text
+1 breaking change(s) detected:
+- Newly required request body: POST /orders
+```
+
+With `--format json`, it prints:
+
+```json
+{"schemaVersion":1,"count":1,"findings":[{"kind":"request-body-newly-required","path":"/orders","method":"post"}]}
+```
+
+Body findings follow sorted query findings and precede response findings within
+an operation. Only body requiredness is compared; request schemas and content types
+are outside this rule. See the [security review](docs/request-body-review.md).
+
 ## Exit codes
 
 For pull requests, use the [GitHub Actions PR guard](docs/github-actions.md):
@@ -256,14 +289,15 @@ are strings; absent fields are omitted rather than emitted as `null`.
 | `operation-removed` | `path`, `method` |
 | `property-removed` | `path`, `method`, `response`, `mediaType`, `property` |
 | `property-type-changed` | `path`, `method`, `response`, `mediaType`, `property`, `before`, `after` |
+| `request-body-newly-required` | `path`, `method` |
 | `query-parameter-newly-required` | `path`, `method`, `parameter` |
 
-Compatibility decision: `schemaVersion` remains **1**. The new kind and its
-`parameter` string field are additive; the envelope and all existing finding
-shapes retain their meaning. Version 1 consumers must tolerate unknown finding
+Compatibility decision: `schemaVersion` remains **1**. The query and request-body
+finding kinds (and query `parameter` string field) are additive; the envelope and
+all existing finding shapes retain their meaning. Version 1 consumers must tolerate unknown finding
 kinds and additional fields. Consumers with a closed kind allowlist must add
-`query-parameter-newly-required` before adopting this update. Renaming/removing
-existing fields or changing their types/meaning would require a new schema version.
+`query-parameter-newly-required` and `request-body-newly-required` before adopting
+this update. Renaming/removing existing fields or changing their types/meaning would require a new schema version.
 
 `path` is an API path, never the input filename. `method` is lowercase;
 `response` is the status key (including ranges or `default`); `mediaType` is the
@@ -319,8 +353,9 @@ dependencies requires registry access; comparison never fetches HTTP resources.
   constraint, enum, format, response-property requiredness-only, or general schema-satisfiability
   analysis. `allOf` supports the structural keywords described above, not every
   possible JSON Schema intersection.
-- **Partial request checks.** Only newly required query parameters are checked.
-  Request bodies, headers, cookies, other parameter locations, query schema/type
+- **Partial request checks.** Only newly required query parameters and request
+  bodies are checked on existing operations. Request schema and content-type
+  compatibility, headers, cookies, other parameter locations, query schema/type
   changes, serialization, and parameter removals are not compared. Callbacks and
   webhooks are not compared. Root response type changes and map removal have no separate
   finding category.
