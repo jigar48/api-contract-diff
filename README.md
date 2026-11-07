@@ -66,6 +66,21 @@ node dist/cli.js compare examples/orders-before.yaml examples/orders-before.yaml
 The first three commands exit 1 with the same five findings; the last exits 0.
 The YAML example files contain the same synthetic data as their JSON counterparts.
 
+### JSON input limits
+
+Each JSON file, including references, must be valid UTF-8 and may contain at
+most **2 MiB (2,097,152 bytes)**, including whitespace. Up to **64 nested
+objects or arrays** are allowed, counting the root container as depth 1.
+Brackets inside quoted strings do not count. The loader reads at most one
+byte past the limit and checks encoding and depth before `JSON.parse` validates
+syntax. These input errors produce one short stderr diagnostic without source
+excerpts, an empty stdout stream, and exit 2 in both report formats.
+
+See the [synthetic boundary demonstration](AUDIT.md#json-boundary-demonstration)
+for real CLI output at the byte and depth limits.
+
+### YAML input limits
+
 Each YAML file, including references, is limited to **2 MiB (2,097,152 bytes)**
 of valid UTF-8 and **64 structural levels**. The root is level 0; each mapping
 key, mapping value, or sequence item adds one level. Depth is checked before
@@ -92,8 +107,8 @@ remain strings.
 Local references can mix JSON and YAML at every step. All existing reference
 restrictions apply: no HTTP/HTTPS, other URI schemes, remote fetching, absolute
 reference paths, directory escape, or symlink escape from the entry directory.
-Limits apply per YAML file, not to total reference count, aggregate bytes, or
-comparison work. Use stable, trusted inputs; this is not a filesystem sandbox.
+Both formats apply their limits per file. Reference count, aggregate bytes and
+memory, and total validation and comparison work remain unbounded by the loader.
 
 ## A realistic before/after example
 
@@ -369,10 +384,9 @@ dependencies requires registry access; comparison never fetches HTTP resources.
   3.1.0–3.1.2. `$id` resource scopes, JSON Schema anchors, dynamic references, and custom
   dialects are unsupported. Literal schema-like keys in examples or extensions
   can be interpreted as schema syntax and rejected.
-- **Trusted local inputs.** YAML has the per-file limits above; JSON retains
-  its existing behavior without size or depth limits. No aggregate file-count or work limits.
-  Filesystem races and mounted network filesystems are outside the tool's
-  protection. This is not a filesystem sandbox.
+- **Trusted local inputs.** JSON and YAML have per-file limits. The loader has
+  no aggregate file-count, memory, or work budget. Use stable local files because
+  concurrent filesystem changes and mounted network filesystems remain risks.
 
 Use the report alongside API review and integration tests, not as your only
 release check.

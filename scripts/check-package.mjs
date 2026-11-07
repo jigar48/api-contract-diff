@@ -48,6 +48,10 @@ try {
   await writeFile(path.join(consumer, 'invalid.yaml'), 'paths: [');
   await writeFile(path.join(consumer, 'wide.yaml'), Array.from({ length: 1025 }, (_, i) => `k${i}: 0\n`).join(''));
   await writeFile(path.join(consumer, 'invalid.json'), '{');
+  const maxBytes = 2 * 1024 * 1024;
+  const small = JSON.stringify({ openapi: '3.0.3', info: { title: 'Synthetic', version: '1' }, paths: {} });
+  await writeFile(path.join(consumer, 'exact.json'), small.padEnd(maxBytes));
+  await writeFile(path.join(consumer, 'oversized.json'), small.padEnd(maxBytes + 1));
   const queryBefore = { openapi: '3.1.0', info: { title: 'Synthetic', version: '1' }, paths: {
     '/orders': { get: { responses: { 200: { description: 'OK' } } } },
   } };
@@ -69,6 +73,8 @@ try {
     ['unchanged', 0, ['compare', 'old.json', 'old.json'], /No breaking changes/],
     ['breaking', 1, ['compare', 'old.json', 'new.json'], /5 breaking change/],
     ['invalid JSON', 2, ['compare', 'invalid.json', 'new.json'], /Error:/],
+    ['JSON byte boundary', 0, ['compare', 'exact.json', 'exact.json'], /No breaking changes/],
+    ['JSON byte limit', 2, ['compare', 'exact.json', 'oversized.json', '--format', 'json'], /^Error: JSON exceeds the 2 MiB input limit\r?\n$/],
     ['remote reference', 2, ['compare', 'remote.json', 'new.json'], /Only relative local references/],
     ['YAML breaking', 1, ['compare', 'old.yaml', 'new.yaml'], /5 breaking change/],
     ['mixed JSON YAML', 1, ['compare', 'old.json', 'new.yaml', '--format', 'json'], /"schemaVersion":1/],

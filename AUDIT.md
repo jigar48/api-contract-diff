@@ -91,16 +91,82 @@ a break without a formal incompatibility.
 
 Recursive scanning treats literal `$ref`, `$id`, and `schema` data keys in examples
 and extensions as schema syntax. Valid data may therefore be rejected. Resource
-scopes, anchors, custom dialects, and YAML are intentionally unsupported. Validation
+scopes, anchors, and custom dialects are unsupported. Validation
 is OpenAPI structural/schema validation, not a proof of all semantic OAS rules.
+
+### Fixed — JSON parsing accepted oversized and deeply nested files
+
+Every JSON entry and reference uses the same bounded read as YAML. The loader
+reads through one open handle, loops over short reads, and stops at EOF or
+2 MiB plus one byte. It rejects overflow before decoding, without relying on a
+size precheck. Fatal UTF-8 decoding rejects malformed bytes without substitution.
+A linear scan uses constant extra state to count nested objects and arrays
+outside strings, skipping escaped characters inside strings. `JSON.parse`
+handles syntax validation after the depth check. Its exceptions are mapped to
+`Invalid JSON` because native error messages can contain input excerpts.
+
+The loader still resolves references relative to the containing file and checks
+canonical paths against the entry directory before reading. The existing disabled
+external resolvers and mixed JSON/YAML reference support are preserved.
 
 ### Low — remaining: local untrusted-input resilience has limits
 
-Static traversal and symlink escapes are rejected. The existing Windows junction
-regression passes. Filesystem checks are subject to concurrent changes between
-resolution and reading. File count, byte size, depth, and comparison work have no
-explicit budgets, so hostile local inputs can exhaust resources. Use stable,
-trusted local files; this tool is not an isolation boundary.
+Static traversal and symlink escapes are rejected. Concurrent filesystem changes
+between resolution and reading remain possible. The byte and depth limits apply
+to each file independently. There is no aggregate reference count, byte, memory,
+or work budget for bundling, dereferencing, validation, or comparison. Use stable,
+trusted local files.
+
+## JSON boundary demonstration
+
+After building, run this PowerShell example from the source checkout. It
+generates synthetic JSON and runs the CLI with network APIs blocked.
+
+```powershell
+@'
+import { mkdtempSync, rmSync, rmdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+
+const dir = mkdtempSync(join(tmpdir(), 'contract-json-demo-'));
+const file = join(dir, 'synthetic.json');
+const spec = { openapi: '3.0.3', info: { title: 'Synthetic', version: '1' }, paths: {} };
+function demo(label, source, ...format) {
+  writeFileSync(file, source);
+  const result = spawnSync(process.execPath, ['--import', './test/network-guard.mjs',
+    'dist/cli.js', 'compare', file, file, ...format], { encoding: 'utf8' });
+  if (result.error) throw result.error;
+  console.log(`${label} (exit ${result.status})`);
+  for (const stream of ['stdout', 'stderr']) {
+    if (result[stream]) console.log(`${stream}: ${result[stream].trimEnd()}`);
+  }
+}
+const bytes = 2 * 1024 * 1024;
+const nested = depth => JSON.stringify(spec).slice(0, -1) + ',"x-depth":' +
+  '['.repeat(depth - 1) + '0' + ']'.repeat(depth - 1) + '}';
+try {
+  demo('2 MiB', JSON.stringify(spec).padEnd(bytes));
+  demo('2 MiB + 1 byte', JSON.stringify(spec).padEnd(bytes + 1), '--format', 'json');
+  demo('Depth 64', nested(64), '--format', 'json');
+  demo('Depth 65', nested(65));
+} finally {
+  rmSync(file, { force: true });
+  rmdirSync(dir);
+}
+'@ | node --input-type=module
+```
+
+```text
+2 MiB (exit 0)
+stdout: No breaking changes detected.
+2 MiB + 1 byte (exit 2)
+stderr: Error: JSON exceeds the 2 MiB input limit
+Depth 64 (exit 0)
+stdout: {"schemaVersion":1,"count":0,"findings":[]}
+Depth 65 (exit 2)
+stderr: Error: JSON exceeds the maximum structural depth of 64
+```
 
 ## Network and exit-code verification
 

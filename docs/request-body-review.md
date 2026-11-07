@@ -20,10 +20,10 @@ remain untrusted data. Tests block network APIs for CLI comparisons and exercise
 internal/relative mixed-format references, malformed pointers, prohibited remote
 references and traversal. Existing regressions cover symlink and resource limits.
 
-Remaining limitations: JSON parsing has no size/depth budget. YAML retains its
-2 MiB, depth 64, 1,024 items per collection and 10,000 total collection items per
-file budgets; there is no aggregate reference-count, byte, or comparison-work
-budget. Filesystem races and mounted network filesystems remain outside protection.
+JSON and YAML have per-file limits of 2 MiB and depth 64. YAML also limits
+collections to 1,024 items each and 10,000 items per file in total. There is no
+aggregate reference-count, byte, memory, or comparison-work budget. Filesystem
+races and mounted network filesystems remain outside protection.
 Use stable, trusted local inputs. The pinned parser/validator's supported versions
 and reference/dialect restrictions remain as documented in the README. This is
 partial compatibility checking; body schemas, media types, and comprehensive API

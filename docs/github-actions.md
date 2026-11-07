@@ -116,9 +116,10 @@ Logs may contain API paths and property names, so use only specifications suitab
 for that repository's Actions log visibility. No PR comments or artifacts are posted.
 
 Parsing hostile documents still has resource risks. The timeout bounds job duration;
-the loader is not an OS sandbox. JSON has no size/depth budget, and neither format
-has aggregate reference-count or comparison-work limits. YAML has strict per-file
-limits and rejects anchors, aliases, merge keys, duplicate keys, and custom tags.
+the loader is not an OS sandbox. JSON and YAML have per-file byte and depth
+limits. Aggregate reference count, memory, and comparison work remain unbounded
+by the loader. YAML also rejects anchors, aliases, merge keys, duplicate keys,
+and custom tags.
 Quote numeric YAML response keys, for example `'200'`. Local references cannot
 escape the entry directory, including through symlinks; URI, absolute, remote,
 and non-pointer references are rejected. See the [README](../README.md#supported-formats-and-yaml-security).
