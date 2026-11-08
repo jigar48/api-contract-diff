@@ -35,8 +35,9 @@ Security review:
   the subsequent audit reports zero vulnerabilities. No direct dependency changes.
 
 No blocking security issue was identified in this change. Existing documented
-risks remain: unrestricted JSON size/depth, no aggregate reference/work budget,
-filesystem races, and mounted network filesystems. Use stable, trusted local
-inputs. This remains a partial compatibility checker, not a guarantee that clients
+risks remain, including no aggregate reference, memory, or work budget,
+filesystem races, and mounted network filesystems. JSON and YAML have per-file
+limits. Use stable, trusted local inputs. This remains a partial compatibility
+checker, not a guarantee that clients
 will continue working. Query schema, serialization, request-body, header, and
 cookie compatibility remain outside this feature.

@@ -1,31 +1,60 @@
-import { open, readFile, realpath } from 'node:fs/promises';
+import { open, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import SwaggerParser from '@apidevtools/swagger-parser';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import { Composer, Lexer, Parser, isAlias, isMap, isSeq, isScalar, type CST } from 'yaml';
 
-const YAML_MAX_BYTES = 2 * 1024 * 1024;
+const MAX_INPUT_BYTES = 2 * 1024 * 1024;
+const JSON_MAX_DEPTH = 64;
 const YAML_MAX_DEPTH = 64;
 const YAML_MAX_COLLECTION_ITEMS = 1024;
 const YAML_MAX_TOTAL_ITEMS = 10_000;
 
-/** Bound reads before parsing; never expand aliases or coerce mapping keys. */
-async function readDocument(file: string): Promise<unknown> {
-  if (!/\.ya?ml$/i.test(file)) return JSON.parse(await readFile(file, 'utf8'));
+/** Read at most one byte beyond the limit to distinguish an exact fit from overflow. */
+async function readSource(file: string, format: 'JSON' | 'YAML'): Promise<string> {
   const handle = await open(file, 'r');
-  let source: string;
   try {
-    const buffer = Buffer.alloc(YAML_MAX_BYTES + 1);
+    const buffer = Buffer.alloc(MAX_INPUT_BYTES + 1);
     let size = 0;
     while (size < buffer.length) {
       const { bytesRead } = await handle.read(buffer, size, buffer.length - size, null);
       if (!bytesRead) break;
       size += bytesRead;
     }
-    if (size > YAML_MAX_BYTES) throw new Error('YAML exceeds the 2 MiB input limit');
-    try { source = new TextDecoder('utf-8', { fatal: true }).decode(buffer.subarray(0, size)); }
-    catch { throw new Error('YAML must be valid UTF-8'); }
+    if (size > MAX_INPUT_BYTES) throw new Error(`${format} exceeds the 2 MiB input limit`);
+    // Preserve a BOM for JSON.parse, which rejected it with the previous reader.
+    const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: format === 'JSON' });
+    try { return decoder.decode(buffer.subarray(0, size)); }
+    catch { throw new Error(`${format} must be valid UTF-8`); }
   } finally { await handle.close(); }
+}
+
+function parseJson(source: string): unknown {
+  let depth = 0;
+  let inString = false;
+  for (let i = 0; i < source.length; i++) {
+    const char = source[i];
+    if (inString) {
+      if (char === '\\') i++; // Skip the escaped character, including another backslash.
+      else if (char === '"') inString = false;
+    } else if (char === '"') {
+      inString = true;
+    } else if (char === '{' || char === '[') {
+      if (++depth > JSON_MAX_DEPTH) throw new Error('JSON exceeds the maximum structural depth of 64');
+    } else if ((char === '}' || char === ']') && depth > 0) {
+      depth--;
+    }
+  }
+  // JSON.parse validates syntax. Its error message may include source text.
+  try { return JSON.parse(source); }
+  catch { throw new Error('Invalid JSON'); }
+}
+
+/** Bound reads before parsing; never expand YAML aliases or coerce mapping keys. */
+async function readDocument(file: string): Promise<unknown> {
+  const format = /\.ya?ml$/i.test(file) ? 'YAML' : 'JSON';
+  const source = await readSource(file, format);
+  if (format === 'JSON') return parseJson(source);
   // Parser builds syntax only; Composer performs duplicate-key comparisons.
   // Check each completed CST exactly once before handing any tokens to Composer.
   const parser = new Parser();

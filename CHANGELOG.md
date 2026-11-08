@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Bound every local JSON file, including references, to 2 MiB of valid UTF-8
+  and 64 nested object or array levels. Reject malformed JSON with a short
+  diagnostic that omits source text. These are per-file limits.
 - Add `request-body-newly-required` with `path` and lowercase `method` when an
   existing operation's absent/optional request body becomes `required: true`.
   Omitted `required` is false. Reuse validated local references for OpenAPI 3.0/3.1
