@@ -25,9 +25,10 @@ env:
 
 Use `.json`, `.yaml`, or `.yml`, including mixed formats. For a rename or format
 migration, configure different old and new paths. Use plain relative paths without
-`..`, an absolute prefix, or shell expressions. Values are quoted environment
-variables, not shell source. A missing entry on either side fails closed; a newly
-introduced API needs an explicitly reviewed baseline rather than silently skipping.
+`..`, an absolute prefix, or shell expressions. The comparison step reads the
+values from the environment and requires each entry to resolve to a regular file
+inside its own checkout. Missing entries and symlinks into another checkout fail
+with exit 2. A newly introduced API needs an explicitly reviewed baseline.
 
 Both complete trees are checked out at the PR event's exact base and head SHAs.
 This compares the proposed head directly against the target branch snapshot,
@@ -57,22 +58,21 @@ For local installation and the identical comparison command:
 
 ```sh
 git clone https://github.com/jigar48/api-contract-diff.git contract-tool
-git -C contract-tool checkout --detach 3ba71a75ebbdf246f3faeb0dce6925fccc7544d9
+git -C contract-tool checkout --detach 1a22cf40ec288ea089de8a1600b1faf94e284fb7
 cd contract-tool
 npm ci --ignore-scripts --no-audit --no-fund
 npm run build
 node dist/cli.js compare /path/to/base/api/openapi.yaml /path/to/head/api/openapi.yaml --format json
 ```
 
-Installation downloads code/dependencies; the comparison reads only local files
-and never fetches remote specifications. The final workflow command returns the
-CLI status directly, without `continue-on-error`, a pipeline, or `|| true`:
+Installation downloads code and dependencies. The comparison reads local files.
+After checking the entry paths, the workflow propagates the CLI exit status:
 
 | Exit | CLI result | Job result |
 | --- | --- | --- |
 | 0 | No supported breaking changes | Pass |
 | 1 | Supported breaking changes | Fail |
-| 2 | Invalid input, rejected reference, or execution error | Fail |
+| 2 | Invalid input, rejected entry or reference, or execution error | Fail |
 
 Installation, checkout, and runner failures also fail the job, but are not CLI
 exit-2 reports. Inspect the failed step and its logs to distinguish them.
@@ -95,8 +95,24 @@ removed `DELETE /orders/{orderId}`, removed `/customer/email`, and changed types
 for `/total` and `/items/*/quantity`. These are synthetic specifications with no
 customer data. To demonstrate in a disposable API repository, add the before
 specification at the configured path on the target branch, then propose the after
-version in a PR. Keeping the before version passes; substituting malformed JSON
-or YAML fails with exit 2. No credentials or remote API are needed.
+version in a PR. Keeping the before version passes. Substituting malformed JSON
+or YAML fails with exit 2.
+
+To validate the pin from this repository on Node.js 22.22.0, build the exact
+workflow revision in a fresh detached worktree and run the comparison step tests
+against it. Run this from the repository root after installing test dependencies.
+
+```sh
+pin_dir="$(mktemp -d)/contract-tool"
+git worktree add --detach "$pin_dir" 1a22cf40ec288ea089de8a1600b1faf94e284fb7
+(cd "$pin_dir" && npm ci --ignore-scripts --no-audit --no-fund && npm run build)
+CONTRACT_TOOL_CHECKOUT="$pin_dir" node --test test/github-actions.test.mjs
+```
+
+The test verifies the checkout SHA against the workflow pin and runs the YAML
+comparison step. It generates a referenced JSON file at 2 MiB, then adds one
+byte and expects exit 2, empty stdout, and the size-limit diagnostic. It also
+checks that a head entry symlink pointing into the base checkout fails closed.
 
 ## Security
 
@@ -115,11 +131,10 @@ The guard is not protection against a contributor altering their own workflow.
 Logs may contain API paths and property names, so use only specifications suitable
 for that repository's Actions log visibility. No PR comments or artifacts are posted.
 
-Parsing hostile documents still has resource risks. The timeout bounds job duration;
-the loader is not an OS sandbox. JSON and YAML have per-file byte and depth
-limits. Aggregate reference count, memory, and comparison work remain unbounded
-by the loader. YAML also rejects anchors, aliases, merge keys, duplicate keys,
-and custom tags.
+The job retains its 10-minute timeout. JSON and YAML have per-file byte and depth
+limits. The loader has no aggregate limits on reference count, bytes, memory,
+or work during bundling, validation, and comparison. YAML also rejects anchors,
+aliases, merge keys, duplicate keys, and custom tags.
 Quote numeric YAML response keys, for example `'200'`. Local references cannot
 escape the entry directory, including through symlinks; URI, absolute, remote,
 and non-pointer references are rejected. See the [README](../README.md#supported-formats-and-yaml-security).
@@ -131,9 +146,9 @@ is compatible. The tool detects removed paths/operations, removed named response
 properties, and changed response property types, including nested objects, arrays,
 maps, local references, and structural `allOf` declarations. It also detects newly
 required query parameters on existing operations, with path inheritance and
-operation overrides.
+operation overrides, and newly required request bodies on existing operations.
 
-It does not compare request bodies, other parameter locations, query schemas or
+It does not compare request body schemas, other parameter locations, query schemas or
 serialization, headers, callbacks, or webhooks. It does
 not generally analyze `oneOf`/`anyOf`, tuple `prefixItems`, enums, formats,
 constraints, response-property requiredness-only changes, discriminators, or schema satisfiability.

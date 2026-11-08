@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: jigar48/api-contract-diff
-          ref: 3ba71a75ebbdf246f3faeb0dce6925fccc7544d9
+          ref: 1a22cf40ec288ea089de8a1600b1faf94e284fb7
           path: contract-tool
           persist-credentials: false
           submodules: false
@@ -60,6 +60,32 @@ jobs:
       - name: Compare contracts
         shell: bash
         run: |
-          node "$GITHUB_WORKSPACE/contract-tool/dist/cli.js" compare \
-            "$GITHUB_WORKSPACE/contract-base/$BASE_SPEC" \
-            "$GITHUB_WORKSPACE/contract-head/$HEAD_SPEC" --format json
+          node --input-type=module <<'JS'
+          import { spawnSync } from 'node:child_process';
+          import { realpathSync, statSync } from 'node:fs';
+          import { isAbsolute, join, relative, sep } from 'node:path';
+
+          const { GITHUB_WORKSPACE, BASE_SPEC, HEAD_SPEC } = process.env;
+          function entry(tree, filename) {
+            const root = realpathSync(join(GITHUB_WORKSPACE, tree));
+            const file = realpathSync(join(root, filename));
+            const inside = relative(root, file);
+            if (isAbsolute(inside) || inside === '..' || inside.startsWith('..' + sep) || !statSync(file).isFile()) {
+              throw new Error('Entry is outside its checkout or is not a regular file');
+            }
+            return file;
+          }
+
+          let base, head;
+          try {
+            base = entry('contract-base', BASE_SPEC);
+            head = entry('contract-head', HEAD_SPEC);
+          } catch {
+            console.error('Error: each specification entry must resolve to a regular file inside its own checkout');
+            process.exit(2);
+          }
+          const cli = join(GITHUB_WORKSPACE, 'contract-tool', 'dist', 'cli.js');
+          const result = spawnSync(process.execPath, [cli, 'compare', base, head, '--format', 'json'], { stdio: 'inherit' });
+          if (result.status === null) console.error('Error: comparison process did not exit normally');
+          process.exitCode = result.status ?? 2;
+          JS
